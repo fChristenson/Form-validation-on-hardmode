@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Document</title>
+  <style>
+    body {
+      background: steelblue;
+      color: white;
+    }
+
+    input,
+    select {
+      display: block;
+      margin: 8px 0;
+    }
+
+    :focus {
+      outline: orange 4px solid;
+    }
+
+    .valid {
+      border: 2px #0DA solid;
+    }
+
+    .invalid {
+      border: 2px red solid;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Buy tickets</h1>
+  <form id="form">
+    <input type="text" name="name" placeholder="name *" required>
+    <input type="email" name="email" placeholder="email">
+    <input type="tel" name="phonenumber" placeholder="phonenumber">
+    <select name="method_of_delivery" data-depends-on="phonenumber,email" required>
+      <option value="">Method of delivery *</option>
+      <option value="text">Text</option>
+      <option value="email">Email</option>
+    </select>
+    <select name="method_of_payment" data-depends-on="method_of_delivery" required>
+      <option value="">Method of payment *</option>
+      <option value="creditcard">Creditcard</option>
+      <option value="text">Text</option>
+    </select>
+    <input type="submit" disabled value="submit">
+  </form>
+  <script>
+    const formData = {};
+    let previousFormData = {};
+    const submit = document.querySelector("input[type=submit]")
+    const form = document.querySelector("form")
+    const inputs = Array.from(form.childNodes).filter(e => e && e.name);
+
+    const isValidName = (val) => {
+      if (!val) return false;
+      return val.length >= 3 && val.length < 255;
+    };
+
+    const isValidEmail = (val) => {
+      if (!val) return false;
+      return /[a-zA-Z]+@[a-zA-Z]+\..+/.test(val);
+    };
+
+    const isValidPhonenumber = (val) => {
+      if (!val) return false;
+      return /[0-9]{3,10}/.test(val);
+    };
+
+    const isValidMethodOfDelivery = (val, isValidPhoneNumber) => {
+      return !!val && isValidPhoneNumber;
+    };
+
+    const isValidMethodOfPayment = (val, isValidMethodOfDelivery) => {
+      return !!val && isValidMethodOfDelivery;
+    };
+
+    // State is the root of all evil... dependant form fields are the branches
+    const isValid = (name, value, formData) => {
+      if (name === "name") return isValidName(value);
+      if (name === "email") return isValidEmail(value);
+      if (name === "phonenumber") return isValidPhonenumber(value);
+
+      if (name === "method_of_payment") {
+        const deliveryType = formData['method_of_delivery'].input.value;
+        const paymentType = formData['method_of_payment'].input.value;
+        if (deliveryType === "email") {
+          const emailValue = formData.email.input.value;
+          const isValid = isValidEmail(emailValue);
+          const isValidMatch = paymentType === "creditcard";
+          return isValidMethodOfPayment(value, isValid) && isValidMatch;
+        }
+
+        if (deliveryType === "text") {
+          const phonenumberValue = formData.phonenumber.input.value;
+          const isValid = isValidPhonenumber(phonenumberValue);
+          const isValidMatch = paymentType === "text";
+          return isValidMethodOfPayment(value, isValid) && isValidMatch;
+        }
+      }
+
+      if (name === "method_of_delivery") {
+        const deliveryType = formData['method_of_delivery'].input.value;
+        if (deliveryType === "email") {
+          const emailValue = formData.email.input.value;
+          const isValid = isValidEmail(emailValue);
+          return isValidMethodOfDelivery(value, isValid);
+        }
+
+        if (deliveryType === "text") {
+          const phonenumberValue = formData.phonenumber.input.value;
+          const isValid = isValidPhonenumber(phonenumberValue);
+          return isValidMethodOfDelivery(value, isValid);
+        }
+      }
+    };
+
+    const applyState = (isValid, input, formData) => {
+      formData[input.name].isValid = isValid;
+
+      // if a field is empty remove all state classes
+      if (input.value === "") {
+        input.classList.remove("invalid");
+        input.classList.remove("valid");
+        return;
+      }
+
+      if (isValid) {
+        input.classList.remove("invalid");
+        return input.classList.add("valid");
+      } else {
+        input.classList.add("invalid");
+        return input.classList.remove("valid");
+      }
+    };
+
+    const FieldData = (input) => {
+      const dependsOnString = input.getAttribute("data-depends-on") || "";
+      const array = dependsOnString.split(",");
+      const dependsOn = array.map(str => str.trim()).filter(str => !!str);
+
+      return {
+        input,
+        value: input.value,
+        isValid: false,
+        dependsOn
+      };
+    };
+
+    const initFormData = (input, formData) => {
+      let fieldData = FieldData(input);
+      formData[input.name] = fieldData;
+      previousFormData[input.name] = fieldData;
+    };
+
+    const setFieldState = (formData, previousFormData) => {
+      let keys = Object.keys(formData);
+
+      // grab the keys that have changed since last update
+      keys = keys.filter(key => {
+        const formDataValue = formData[key].input.value;
+        const previousFormDataValue = previousFormData[key].value;
+        return formDataValue !== previousFormDataValue;
+      });
+
+      // get the keys that have a dependency to the changed keys
+      const dependantKeys = keys.reduce((array, key) => {
+        const keys = Object.keys(formData);
+        const dependencies = keys.reduce((array, otherKey) => {
+          const index = formData[otherKey].dependsOn.indexOf(key);
+          const isDependingOnKey = index !== -1;
+          if (isDependingOnKey) array.push(otherKey);
+          return array;
+        }, [])
+
+        return array.concat(dependencies);
+      }, []);
+
+      // combine the changed keys and the keys that depend on them
+      const allFieldsToValidate = keys.concat(dependantKeys);
+
+      // check if the keys are valid and store the state
+      allFieldsToValidate.forEach(key => {
+        const name = formData[key].input.name;
+        const val = formData[key].input.value;
+        const input = formData[key].input;
+        const valid = isValid(name, val, formData);
+        applyState(valid, input, formData);
+        previousFormData[key].value = val;
+      });
+    };
+
+    const formIsValid = (formData) => {
+      const keys = Object.keys(formData);
+      return keys
+        .filter(key => formData[key].input.required)
+        .every(key => formData[key].isValid);
+    };
+
+    const validateField = (e) => {
+      setFieldState(formData, previousFormData);
+
+      if (formIsValid(formData)) {
+        submit.disabled = false;
+      } else {
+        submit.disabled = true;
+      }
+
+      previousFormData = formData;
+    };
+
+    inputs.forEach(e => {
+      initFormData(e, formData)
+      e.addEventListener("change", validateField);
+      e.addEventListener("keyup", validateField);
+    });
+  </script>
+</body>
+
+</html>
